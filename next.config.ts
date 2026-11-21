@@ -1,8 +1,9 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
   cacheComponents: true,
+  // Loaded from node_modules at runtime: they spawn worker threads and read their own files.
+  serverExternalPackages: ["officeparser", "tesseract.js"],
   partialPrefetching: true,
   turbopack: {
     rules: {

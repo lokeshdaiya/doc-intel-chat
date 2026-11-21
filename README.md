@@ -1,20 +1,20 @@
 # Doc Intel Chat
 
-Upload documents, extract their content with **Azure AI Document Intelligence**, store the results in **PostgreSQL**, and **chat** with them using the LLM provider of your choice.
+Upload documents, extract their content with **Azure AI Document Intelligence** or a free **local extractor**, store the results in **PostgreSQL**, and **chat** with them using the LLM provider of your choice.
 
 | Layer | Tech |
 |---|---|
 | App | Next.js 16 (App Router, Route Handlers), React 19, TypeScript, Tailwind CSS 4 |
-| Extraction | Azure AI Document Intelligence (`@azure-rest/ai-document-intelligence`), `prebuilt-layout` model by default |
+| Extraction | Pluggable, chosen in `.env` or on the Settings page: Azure AI Document Intelligence (`prebuilt-layout` by default) or local open source ([officeparser](https://github.com/harshankur/officeParser) + [Tesseract.js](https://github.com/naptha/tesseract.js) OCR) |
 | Database | PostgreSQL 17 + Drizzle ORM, full-text search (`tsvector` + GIN index) for retrieval |
 | Chat | Vercel AI SDK: OpenRouter, Azure OpenAI, Ollama, Groq, Google Gemini, Anthropic Claude, OpenAI |
 
 ## How it works
 
 1. **Upload**: files are saved to `uploads/` and a `documents` row is created with status `uploaded`.
-2. **Analyze**: after the response is sent (`after()` in Next.js), the file is sent to Document Intelligence. The status changes to `processing`.
+2. **Extract**: after the response is sent (`after()` in Next.js), the file goes to the selected extraction service (see [Extraction services](#extraction-services)). The status changes to `processing`.
 3. **Store**: the result is written to Postgres:
-   - `documents.content`: the full document as Markdown (headings and tables are preserved), plus the raw `analyzeResult` JSON
+   - `documents.content`: the full document as Markdown (headings and tables are preserved), plus the raw extractor output as JSON, and which extractor and model produced it
    - `document_chunks`: ~1,500-character chunks with page numbers and a generated `tsvector` column for search
    - `document_tables`: every table as a 2D array of cell text
    - `document_fields`: key-value pairs (layout model) or typed fields (invoice, receipt, ID and other prebuilt models)
@@ -26,10 +26,36 @@ Upload documents, extract their content with **Azure AI Document Intelligence**,
 
 - Node.js 20+
 - Docker Desktop (for the local Postgres), or any PostgreSQL 14+ database
-- An Azure subscription ([free account](https://azure.microsoft.com/free/))
+- An Azure subscription ([free account](https://azure.microsoft.com/free/)), *optional* if you only use the local extractor
 - At least one chat provider. Free options: OpenRouter `:free` models, Groq, Google Gemini, or a local Ollama
 
+## Extraction services
+
+Two extractors are built in. Pick one on the app's **Settings** page, or with `DOCUMENT_EXTRACTOR` in `.env.local`.
+
+| | Azure AI Document Intelligence | Local (open source) |
+|---|---|---|
+| Cost | Billed per page (free F0 tier: 500 pages/month) | Free |
+| Needs | Azure resource, endpoint and key (step 2 below) | Nothing. OCR language data (~5 MB per language) downloads once on first use. |
+| Formats | PDF, JPG/PNG/BMP/TIFF/HEIF, DOCX, XLSX, PPTX, HTML | PDF, JPG/PNG/BMP/TIFF, DOCX, XLSX, PPTX, HTML, ODT/ODS/ODP, RTF, Markdown, CSV |
+| Scanned PDFs and photos | Excellent OCR, handwriting support | Tesseract OCR. Scanned PDFs are detected automatically (no text layer) and OCR'd page by page. Good on clean scans, weaker on photos and handwriting. |
+| Tables | Yes, including scanned tables | Yes for digital documents; not from scans |
+| Key-value pairs and typed fields | Yes (layout, invoice, receipt, ID and other models) | No |
+| Data leaves your server | Yes (to your Azure region) | No |
+
+**How the extractor is chosen** (highest priority first):
+
+1. **Settings page** (`/settings`): saved in the database. Choose *Use .env* to clear it.
+2. **`DOCUMENT_EXTRACTOR`** in `.env.local`: `azure`, `local` or `auto`.
+3. **Default `auto`**: Azure when its endpoint and key are set, otherwise local.
+
+The Azure model (`AZURE_DOCUMENT_INTELLIGENCE_MODEL`) and the local OCR languages (`LOCAL_OCR_LANGUAGES`, for example `eng+hin`) follow the same order. Changes apply to new uploads and to documents you **Reprocess**, so you can re-run any document with a different extractor and compare. The document page shows which extractor and model produced its content.
+
+To add another service (for example AWS Textract, Google Document AI or Mistral OCR), implement the `Extractor` interface in `src/lib/extractors/types.ts` and register it in `src/lib/extractors/index.ts`. It then shows up on the Settings page.
+
 ## 2. Set up Azure AI Document Intelligence
+
+> Skip this step if you only want the local extractor.
 
 ### Option A: Azure portal
 
@@ -81,7 +107,7 @@ You can try any model on your own files in **Document Intelligence Studio** befo
 
 ### Production notes
 
-- Instead of keys, you can use Microsoft Entra ID (managed identity). Swap `AzureKeyCredential` in `src/lib/document-intelligence.ts` for `DefaultAzureCredential` from `@azure/identity`, and grant the app the **Cognitive Services User** role.
+- Instead of keys, you can use Microsoft Entra ID (managed identity). Swap `AzureKeyCredential` in `src/lib/extractors/azure.ts` for `DefaultAzureCredential` from `@azure/identity`, and grant the app the **Cognitive Services User** role.
 - Keep keys in Azure Key Vault or your host's secret store, not in source control. `.env.local` is already ignored by git.
 
 ## 3. Configure the app
@@ -92,7 +118,7 @@ npm install
 cp .env.example .env.local     # on Windows PowerShell: Copy-Item .env.example .env.local
 ```
 
-Edit `.env.local`: add the Document Intelligence endpoint and key, plus at least one chat provider.
+Edit `.env.local`: add at least one chat provider, plus the Document Intelligence endpoint and key if you use Azure. With no Azure key, the local extractor is used automatically.
 
 ### Chat providers
 
@@ -141,17 +167,24 @@ src/
     page.tsx                         Upload + document list
     documents/[id]/page.tsx          Extracted content, tables, fields, per-document chat
     chat/page.tsx                    Chat across all documents
+    settings/page.tsx                Extraction service, Azure model, OCR languages
     api/
       documents/route.ts             GET list, POST upload (starts analysis with after())
       documents/[id]/route.ts        GET detail, DELETE
       documents/[id]/reprocess/      POST re-run analysis
       chat/route.ts                  Retrieval + streaming answer
       providers/route.ts             Configured chat providers for the UI
+      settings/route.ts              GET/PUT app settings
   components/                        Chat panel, Markdown renderer, status badge
-  db/schema.ts                       Drizzle schema (documents, chunks, tables, fields)
+  db/schema.ts                       Drizzle schema (documents, chunks, tables, fields, app_settings)
   lib/
-    document-intelligence.ts         Azure client + analyze call
-    process-document.ts              Chunking and persistence of the analysis result
+    extractors/
+      types.ts                       Extractor interface and result shape
+      index.ts                       Extractor registry
+      azure.ts                       Azure AI Document Intelligence
+      local.ts                       officeparser + Tesseract OCR
+    settings.ts                      Settings page → env → default resolution
+    process-document.ts              Runs the selected extractor, chunks and stores the result
     retrieval.ts                     Postgres full-text search over chunks
     ai/providers.ts                  Multi-provider LLM registry
 drizzle/                             SQL migrations
@@ -167,6 +200,10 @@ drizzle/                             SQL migrations
 | *No chat provider is configured* | Set at least one provider key in `.env.local` and restart `npm run dev`. |
 | Chat says the model is not found | The model id is wrong for that provider, or (Azure) you entered the model name instead of the **deployment name**. |
 | `ECONNREFUSED 5432` | Postgres isn't running. Start Docker Desktop, then run `npm run db:up`. |
+| Settings page: Azure option is greyed out | Azure isn't configured. Set its endpoint and key in `.env.local` and restart. |
+| Local extractor: first image or scan is slow, or fails offline | Tesseract downloads language data on first use (cached in `.cache/tesseract`). Run it once with internet access. |
+| Local extractor: *No text could be extracted* | The file has no text layer and no images to OCR (for example, a password-protected or empty file). |
+| After pulling this version: *column "extractor" does not exist* | Run `npm run db:migrate` to apply the new migration. |
 
 ## Ideas for next steps
 

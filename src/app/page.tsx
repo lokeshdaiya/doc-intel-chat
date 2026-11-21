@@ -14,7 +14,7 @@ type DocumentRow = {
   createdAt: string;
 };
 
-const ACCEPT = ".pdf,.jpg,.jpeg,.png,.bmp,.tif,.tiff,.heif,.docx,.xlsx,.pptx,.html";
+const ACCEPT = ".pdf,.jpg,.jpeg,.png,.bmp,.tif,.tiff,.heif,.docx,.xlsx,.pptx,.html,.htm,.odt,.ods,.odp,.rtf,.md,.csv";
 
 export default function DocumentsPage() {
   const [docs, setDocs] = useState<DocumentRow[] | null>(null);
@@ -73,7 +73,7 @@ export default function DocumentsPage() {
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Documents</h1>
         <p className="text-sm text-zinc-600 dark:text-zinc-400">
-          Upload files to extract text, tables and key-value pairs with Azure AI Document Intelligence.
+          Upload files to extract text, tables and key-value pairs. The extraction service is chosen in Settings.
         </p>
       </div>
 
@@ -103,7 +103,7 @@ export default function DocumentsPage() {
           onChange={(e) => e.target.files && upload(e.target.files)}
         />
         <span className="font-medium">{uploading ? "Uploading…" : "Drop files here or click to browse"}</span>
-        <span className="mt-1 text-xs text-zinc-500">PDF, images (JPG/PNG/TIFF/BMP/HEIF), DOCX, XLSX, PPTX, HTML</span>
+        <span className="mt-1 text-xs text-zinc-500">PDF, images, Word, Excel, PowerPoint, HTML (local extractor also: ODT/ODS/ODP, RTF, Markdown, CSV)</span>
       </label>
 
       {error && (

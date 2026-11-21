@@ -34,11 +34,13 @@ export const documents = pgTable("documents", {
   storagePath: text("storage_path").notNull(),
   status: documentStatus("status").notNull().default("uploaded"),
   error: text("error"),
+  /** Which extractor produced the stored content, e.g. "azure" or "local". */
+  extractor: text("extractor"),
   modelId: text("model_id"),
   pageCount: integer("page_count"),
   /** Full document content as Markdown, produced by Document Intelligence. */
   content: text("content"),
-  /** Raw analyzeResult from Document Intelligence, kept for later re-use. */
+  /** Raw extractor output (e.g. Azure analyzeResult), kept for later re-use. */
   rawResult: jsonb("raw_result"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -95,6 +97,13 @@ export const documentFields = pgTable(
   },
   (t) => [index("document_fields_document_idx").on(t.documentId)],
 );
+
+/** Key-value store for settings changed from the app's Settings page. */
+export const appSettings = pgTable("app_settings", {
+  key: text("key").primaryKey(),
+  value: jsonb("value").notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
 
 export type Document = typeof documents.$inferSelect;
 export type DocumentChunk = typeof documentChunks.$inferSelect;

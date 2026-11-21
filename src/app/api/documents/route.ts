@@ -7,10 +7,12 @@ import { processDocument } from "@/lib/process-document";
 
 export const maxDuration = 300;
 
-// Formats accepted by Azure AI Document Intelligence (layout / read models).
+// Formats accepted by at least one extractor. Azure handles PDF, images, Office and HTML;
+// the local extractor additionally reads OpenDocument, RTF, Markdown and CSV (but not HEIF).
 const ALLOWED_EXTENSIONS = new Set([
   ".pdf", ".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff", ".heif",
-  ".docx", ".xlsx", ".pptx", ".html",
+  ".docx", ".xlsx", ".pptx", ".html", ".htm",
+  ".odt", ".ods", ".odp", ".rtf", ".md", ".csv",
 ]);
 
 const uploadDir = () => path.resolve(process.env.UPLOAD_DIR || "uploads");
